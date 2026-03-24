@@ -1,0 +1,608 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AMApplicationBuild</key>
+	<string>534</string>
+	<key>AMApplicationVersion</key>
+	<string>2.10</string>
+	<key>AMDocumentVersion</key>
+	<string>2</string>
+	<key>actions</key>
+	<array>
+		<dict>
+			<key>action</key>
+			<dict>
+				<key>AMAccepts</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Optional</key>
+					<true/>
+					<key>Types</key>
+					<array>
+						<string>com.apple.cocoa.string</string>
+					</array>
+				</dict>
+				<key>AMActionVersion</key>
+				<string>2.0.3</string>
+				<key>AMApplication</key>
+				<array>
+					<string>Automator</string>
+				</array>
+				<key>AMParameterProperties</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<dict/>
+					<key>CheckedForUserDefaultShell</key>
+					<dict/>
+					<key>inputMethod</key>
+					<dict/>
+					<key>shell</key>
+					<dict/>
+					<key>source</key>
+					<dict/>
+				</dict>
+				<key>AMProvides</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Types</key>
+					<array>
+						<string>com.apple.cocoa.string</string>
+					</array>
+				</dict>
+				<key>ActionBundlePath</key>
+				<string>/System/Library/Automator/Run Shell Script.action</string>
+				<key>ActionName</key>
+				<string>Run Shell Script</string>
+				<key>ActionParameters</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<string>#!/usr/bin/env ruby
+# frozen_string_literal: true
+# version: 1.0.0
+
+require &#39;fileutils&#39;
+require &#39;yaml&#39;
+
+class String
+  def clean_combo
+    gsub!(/(?&lt;=\S)-(?=\S)/, &#39; &#39;)
+    gsub!(/\b(comm(and)?|cmd|clover)\b/i, &#39;@&#39;)
+    gsub!(/\b(cont(rol)?|ctl|ctrl)\b/i, &#39;^&#39;)
+    gsub!(/\b(opt(ion)?|alt)\b/i, &#39;~&#39;)
+    gsub!(/\bshift\b/i, &#39;$&#39;)
+    gsub!(/\b(func(tion)?|fn)\b/i, &#39;*&#39;)
+    self
+  end
+
+  def clean_combo!
+    replace(clean_combo)
+  end
+
+  def to_mod
+    { &#39;^&#39; =&gt; &quot;\u2303&quot;, &#39;~&#39; =&gt; &quot;\u2325&quot;, &#39;$&#39; =&gt; &quot;\u21E7&quot;, &#39;@&#39; =&gt; &quot;\u2318&quot;, &#39;*&#39; =&gt; &#39;Fn&#39; }.fetch(self, self)
+  end
+
+  def lower_to_upper
+    {
+      &#39;,&#39; =&gt; &#39;&lt;&#39;,
+      &#39;.&#39; =&gt; &#39;&gt;&#39;,
+      &#39;/&#39; =&gt; &#39;?&#39;,
+      &#39;;&#39; =&gt; &#39;:&#39;,
+      &quot;&#39;&quot; =&gt; &#39;&quot;&#39;,
+      &#39;[&#39; =&gt; &#39;{&#39;,
+      &#39;]&#39; =&gt; &#39;}&#39;,
+      &#39;\\&#39; =&gt; &#39;|&#39;,
+      &#39;-&#39; =&gt; &#39;_&#39;,
+      &#39;=&#39; =&gt; &#39;+&#39;
+    }.fetch(self, self)
+  end
+
+  def upper?
+    %w(&lt; &gt; ? : &quot; { } | ! @ # $ % ^ &amp; * \( \) _ +).include?(self)
+  end
+
+  def mod_to_title
+    {
+      &quot;\u2303&quot; =&gt; &#39;Control&#39;,
+      &quot;\u2325&quot; =&gt; &#39;Option&#39;,
+      &quot;\u21E7&quot; =&gt; &#39;Shift&#39;,
+      &quot;\u2318&quot; =&gt; &#39;Command&#39;,
+      &#39;Fn&#39; =&gt; &#39;Function&#39;
+    }.fetch(self, self)
+  end
+end
+
+module KbdAutomator
+  module Config
+    CONFIG_PATH = File.expand_path(&#39;~/.config/kbd/config.yaml&#39;)
+    DEFAULTS = {
+      &#39;kbd&#39; =&gt; {
+        &#39;use_modifier_symbols&#39; =&gt; true,
+        &#39;use_key_symbols&#39; =&gt; true,
+        &#39;use_plus_sign&#39; =&gt; false
+      }
+    }.freeze
+
+    module_function
+
+    def ensure!
+      return if File.exist?(CONFIG_PATH)
+
+      FileUtils.mkdir_p(File.dirname(CONFIG_PATH))
+      File.write(CONFIG_PATH, default_yaml)
+      system(&#39;open&#39;, CONFIG_PATH)
+    end
+
+    def load
+      ensure!
+      loaded = YAML.safe_load(File.read(CONFIG_PATH), permitted_classes: [], aliases: false) || {}
+      deep_merge(DEFAULTS, loaded)
+    rescue StandardError
+      DEFAULTS
+    end
+
+    def default_yaml
+      &lt;&lt;~YAML
+        kbd:
+          use_modifier_symbols: true
+          use_key_symbols: true
+          use_plus_sign: false
+      YAML
+    end
+
+    def deep_merge(base, override)
+      merged = base.dup
+      override.each do |k, v|
+        merged[k] =
+          if v.is_a?(Hash) &amp;&amp; base[k].is_a?(Hash)
+            deep_merge(base[k], v)
+          else
+            v
+          end
+      end
+      merged
+    end
+  end
+
+  module CLI
+    module_function
+
+    def read_input(argv, stdin)
+      return argv.join(&#39; &#39;).strip unless argv.empty?
+
+      # In some non-interactive contexts stdin is not a TTY but has no data.
+      # Use a zero-timeout select so we don&#39;t block waiting for input forever.
+      return nil if stdin.tty? || IO.select([stdin], nil, nil, 0).nil?
+
+      value = stdin.read.to_s.strip
+      value.empty? ? nil : value
+    end
+
+    def print_help(script_name, io = $stderr)
+      io.puts &lt;&lt;~HELP
+        Usage:
+          #{script_name} &quot;shift cmd k&quot;
+          echo &quot;shift cmd k&quot; | #{script_name}
+
+        Accepted input formats:
+          - Symbol format: &quot;$@k&quot;
+          - Text format: &quot;shift cmd k&quot;
+          - Hyphenated text: &quot;Shift-Command-k&quot;
+          - Multiple combos separated by: &quot; / &quot;
+
+        Config file:
+          #{Config::CONFIG_PATH}
+      HELP
+    end
+  end
+
+  class Formatter
+    MOD_HTML = {
+      &quot;\u2303&quot; =&gt; &#39;&amp;#8963;&#39;,
+      &quot;\u2325&quot; =&gt; &#39;&amp;#8997;&#39;,
+      &quot;\u21E7&quot; =&gt; &#39;&amp;#8679;&#39;,
+      &quot;\u2318&quot; =&gt; &#39;&amp;#8984;&#39;,
+      &#39;Fn&#39; =&gt; &#39;Fn&#39;
+    }.freeze
+    MOD_TEXT = {
+      &quot;\u2303&quot; =&gt; &#39;Control&#39;,
+      &quot;\u2325&quot; =&gt; &#39;Option&#39;,
+      &quot;\u21E7&quot; =&gt; &#39;Shift&#39;,
+      &quot;\u2318&quot; =&gt; &#39;Command&#39;,
+      &#39;Fn&#39; =&gt; &#39;Function&#39;
+    }.freeze
+    KEY_MAP = {
+      /^f(\d{1,2})$/ =&gt; [&#39;F%&lt;n&gt;s&#39;, &#39;F%&lt;n&gt;s&#39;, &#39;F%&lt;n&gt;s&#39;],
+      /^apple$/ =&gt; [&#39;Apple&#39;, &quot;\uF8FF&quot;, &#39;Apple&#39;],
+      /^tab$/ =&gt; [&#39;&#39;, &quot;\u21E5&quot;, &#39;Tab&#39;],
+      /^caps(lock)?$/ =&gt; [&#39;Caps Lock&#39;, &quot;\u21EA&quot;, &#39;Caps Lock&#39;],
+      /^eject$/ =&gt; [&#39;Eject&#39;, &quot;\u23CF&quot;, &#39;Eject&#39;],
+      /^return$/ =&gt; [&#39;Return&#39;, &quot;\u21A9&quot;, &#39;Return&#39;],
+      /^enter$/ =&gt; [&#39;Enter&#39;, &quot;\u2324&quot;, &#39;Enter&#39;],
+      /^(del(ete)?|back(space)?)$/ =&gt; [&#39;Del&#39;, &quot;\u232B&quot;, &#39;Delete&#39;],
+      /^fwddel(ete)?$/ =&gt; [&#39;Fwd Del&#39;, &quot;\u2326&quot;, &#39;Forward Delete&#39;],
+      /^(esc(ape)?)$/ =&gt; [&#39;Esc&#39;, &quot;\u238B&quot;, &#39;Escape&#39;],
+      /^(right|rt)$/ =&gt; [&#39;Right Arrow&#39;, &quot;\u2192&quot;, &#39;Right Arrow&#39;],
+      /^(left|lt)$/ =&gt; [&#39;Left Arrow&#39;, &quot;\u2190&quot;, &#39;Left Arrow&#39;],
+      /^up$/ =&gt; [&#39;Up Arrow&#39;, &quot;\u2191&quot;, &#39;Up Arrow&#39;],
+      /^(down|dn)$/ =&gt; [&#39;Down Arrow&#39;, &quot;\u2193&quot;, &#39;Down Arrow&#39;],
+      /^pgup$/ =&gt; [&#39;PgUp&#39;, &quot;\u21DE&quot;, &#39;Page Up&#39;],
+      /^pgdn$/ =&gt; [&#39;PgDn&#39;, &quot;\u21DF&quot;, &#39;Page Down&#39;],
+      /^home$/ =&gt; [&#39;Home&#39;, &quot;\u2196&quot;, &#39;Home&#39;],
+      /^end$/ =&gt; [&#39;End&#39;, &quot;\u2198&quot;, &#39;End&#39;],
+      /^numlock$/ =&gt; [&#39;Num Lock&#39;, &quot;\u21ED&quot;, &#39;Num Lock&#39;],
+      /^clear$/ =&gt; [&#39;Clear&#39;, &quot;\u2327&quot;, &#39;Clear&#39;],
+      /^click$/ =&gt; [&#39;click&#39;, &quot;\u{1F5B1}&quot;, &#39;left click&#39;]
+    }.freeze
+
+    def initialize(use_modifier_symbols:, use_key_symbols:, use_plus_sign:)
+      @use_modifier_symbols = use_modifier_symbols
+      @use_key_symbols = use_key_symbols
+      @use_plus_sign = use_plus_sign
+    end
+
+    def render_html(input)
+      parse(input).map { |combo| combo_to_html(combo) }.reject(&amp;:empty?).join(&#39;/&#39;)
+    end
+
+    def render_text(input)
+      parse(input).map { |combo| combo_to_text(combo) }.reject(&amp;:empty?).join(&#39;/&#39;)
+    end
+
+    private
+
+    def parse(markup)
+      markup.split(%r{ / }).map do |combo|
+        mods = []
+        key = +&#39;&#39;
+        combo = combo.dup
+        combo.clean_combo!
+
+        combo.strip.each_char do |char|
+          next if char == &#39; &#39;
+
+          case char
+          when /[\u2303\u21E7\u2325\u2318]/
+            mods &lt;&lt; char
+          when /[*\^$@~]/
+            mods &lt;&lt; char.to_mod
+          else
+            key &lt;&lt; char
+          end
+        end
+
+        mods = sort_mods(mods)
+        if key.length == 1
+          mods &lt;&lt; &#39;$&#39;.to_mod if mods.empty? &amp;&amp; (key =~ /[A-Z]/ || key.upper?)
+          key = key.lower_to_upper if mods.include?(&#39;$&#39;.to_mod)
+          key.upcase!
+        elsif mods.include?(&#39;$&#39;.to_mod)
+          key = key.lower_to_upper
+        end
+
+        key.gsub!(/&quot;/, &#39;&amp;quot;&#39;)
+        { mods: mods, key: key }
+      end
+    end
+
+    def sort_mods(mods)
+      order = [&#39;Fn&#39;, &quot;\u2303&quot;, &quot;\u2325&quot;, &quot;\u21E7&quot;, &quot;\u2318&quot;]
+      mods.uniq.sort { |a, b| order.index(a) &lt; order.index(b) ? -1 : 1 }
+    end
+
+    def key_triplet(key)
+      down = key.strip.downcase
+      KEY_MAP.each do |pattern, val|
+        next unless down.match?(pattern)
+
+        if pattern == /^f(\d{1,2})$/
+          num = down.match(pattern)[1]
+          return [format(val[0], n: num), format(val[1], n: num), format(val[2], n: num)]
+        end
+        return val
+      end
+      [key, key, key.capitalize]
+    end
+
+    def combo_to_html(combo)
+      return &#39;&#39; unless combo[:mods].any? || !combo[:key].empty?
+
+      kbds = []
+      title = []
+      combo[:mods].each do |mod|
+        mod_class = @use_modifier_symbols ? &#39;mod symbol&#39; : &#39;mod&#39;
+        mod_text = @use_modifier_symbols ? MOD_HTML.fetch(mod, mod) : MOD_TEXT.fetch(mod, mod)
+        kbds &lt;&lt; %(&lt;kbd class=&quot;#{mod_class}&quot;&gt;#{mod_text}&lt;/kbd&gt;)
+        title &lt;&lt; mod.mod_to_title
+      end
+
+      unless combo[:key].empty?
+        key_name, key_symbol, key_title = key_triplet(combo[:key])
+        key_class = @use_key_symbols ? &#39;key symbol&#39; : &#39;key&#39;
+        key_content = @use_key_symbols ? key_symbol : key_name
+        kbds &lt;&lt; %(&lt;kbd class=&quot;#{key_class}&quot;&gt;#{key_content}&lt;/kbd&gt;)
+        title &lt;&lt; key_title
+      end
+
+      sep = if @use_modifier_symbols
+              @use_plus_sign ? &#39;+&#39; : &#39;&#39;
+            else
+              &#39;-&#39;
+            end
+      span_class = &quot;keycombo #{@use_modifier_symbols &amp;&amp; !@use_plus_sign ? &#39;combined&#39; : &#39;separated&#39;}&quot;
+      %(&lt;span class=&quot;#{span_class}&quot; title=&quot;#{title.join(&#39;-&#39;)}&quot;&gt;#{kbds.join(sep)}&lt;/span&gt;)
+    end
+
+    def combo_to_text(combo)
+      return &#39;&#39; unless combo[:mods].any? || !combo[:key].empty?
+
+      mods = combo[:mods].map do |mod|
+        @use_modifier_symbols ? mod : MOD_TEXT.fetch(mod, mod)
+      end
+
+      key = &#39;&#39;
+      unless combo[:key].empty?
+        key_name, key_symbol, = key_triplet(combo[:key])
+        key = @use_key_symbols ? key_symbol : key_name
+      end
+
+      pieces = mods + [key].reject(&amp;:empty?)
+      sep = if @use_modifier_symbols
+              @use_plus_sign ? &#39;+&#39; : &#39;&#39;
+            else
+              &#39;-&#39;
+            end
+      pieces.join(sep)
+    end
+  end
+end
+
+config = KbdAutomator::Config.load
+input = KbdAutomator::CLI.read_input(ARGV, $stdin)
+
+unless input
+  KbdAutomator::CLI.print_help(File.basename(__FILE__), $stderr)
+  exit 1
+end
+
+kbd = config.fetch(&#39;kbd&#39;, {})
+formatter = KbdAutomator::Formatter.new(
+  use_modifier_symbols: kbd.fetch(&#39;use_modifier_symbols&#39;, true),
+  use_key_symbols: kbd.fetch(&#39;use_key_symbols&#39;, true),
+  use_plus_sign: kbd.fetch(&#39;use_plus_sign&#39;, false)
+)
+
+puts formatter.render_text(input)
+</string>
+					<key>CheckedForUserDefaultShell</key>
+					<true/>
+					<key>inputMethod</key>
+					<integer>0</integer>
+					<key>shell</key>
+					<string>/usr/bin/ruby</string>
+					<key>source</key>
+					<string/>
+				</dict>
+				<key>BundleIdentifier</key>
+				<string>com.apple.RunShellScript</string>
+				<key>CFBundleVersion</key>
+				<string>2.0.3</string>
+				<key>CanShowSelectedItemsWhenRun</key>
+				<false/>
+				<key>CanShowWhenRun</key>
+				<true/>
+				<key>Category</key>
+				<array>
+					<string>AMCategoryUtilities</string>
+				</array>
+				<key>Class Name</key>
+				<string>RunShellScriptAction</string>
+				<key>InputUUID</key>
+				<string>9C142107-5FBC-4F2D-B857-0C668073B9E7</string>
+				<key>Keywords</key>
+				<array>
+					<string>Shell</string>
+					<string>Script</string>
+					<string>Command</string>
+					<string>Run</string>
+					<string>Unix</string>
+				</array>
+				<key>OutputUUID</key>
+				<string>95E2F171-C664-4DD8-AF5E-8B14EAC1DC65</string>
+				<key>UUID</key>
+				<string>808ED47C-D3B8-4D3C-BE6B-15A82D02B963</string>
+				<key>UnlocalizedApplications</key>
+				<array>
+					<string>Automator</string>
+				</array>
+				<key>arguments</key>
+				<dict>
+					<key>0</key>
+					<dict>
+						<key>default value</key>
+						<integer>0</integer>
+						<key>name</key>
+						<string>inputMethod</string>
+						<key>required</key>
+						<string>0</string>
+						<key>type</key>
+						<string>0</string>
+						<key>uuid</key>
+						<string>0</string>
+					</dict>
+					<key>1</key>
+					<dict>
+						<key>default value</key>
+						<false/>
+						<key>name</key>
+						<string>CheckedForUserDefaultShell</string>
+						<key>required</key>
+						<string>0</string>
+						<key>type</key>
+						<string>0</string>
+						<key>uuid</key>
+						<string>1</string>
+					</dict>
+					<key>2</key>
+					<dict>
+						<key>default value</key>
+						<string/>
+						<key>name</key>
+						<string>source</string>
+						<key>required</key>
+						<string>0</string>
+						<key>type</key>
+						<string>0</string>
+						<key>uuid</key>
+						<string>2</string>
+					</dict>
+					<key>3</key>
+					<dict>
+						<key>default value</key>
+						<string/>
+						<key>name</key>
+						<string>COMMAND_STRING</string>
+						<key>required</key>
+						<string>0</string>
+						<key>type</key>
+						<string>0</string>
+						<key>uuid</key>
+						<string>3</string>
+					</dict>
+					<key>4</key>
+					<dict>
+						<key>default value</key>
+						<string>/bin/sh</string>
+						<key>name</key>
+						<string>shell</string>
+						<key>required</key>
+						<string>0</string>
+						<key>type</key>
+						<string>0</string>
+						<key>uuid</key>
+						<string>4</string>
+					</dict>
+				</dict>
+				<key>isViewVisible</key>
+				<integer>1</integer>
+				<key>location</key>
+				<string>309.000000:305.000000</string>
+				<key>nibPath</key>
+				<string>/System/Library/Automator/Run Shell Script.action/Contents/Resources/Base.lproj/main.nib</string>
+			</dict>
+			<key>isViewVisible</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>connectors</key>
+	<dict/>
+	<key>workflowMetaData</key>
+	<dict>
+		<key>applicationBundleIDsByPath</key>
+		<dict/>
+		<key>applicationPaths</key>
+		<array/>
+		<key>backgroundColor</key>
+		<data>
+		YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMS
+		AAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGpCwwXGBkkKisyVSRudWxs1Q0O
+		DxAREhMUFRZWJGNsYXNzW05TQ29sb3JOYW1lXE5TQ29sb3JTcGFjZV1OU0NhdGFsb2dO
+		YW1lV05TQ29sb3KACIADEAaAAoAEVlN5c3RlbV8QEHN5c3RlbUdyZWVuQ29sb3LWDRob
+		DxwdEh8gISIjXE5TQ29tcG9uZW50c1VOU1JHQl8QEk5TQ3VzdG9tQ29sb3JTcGFjZV8Q
+		EE5TTGluZWFyRXhwb3N1cmWACEcwIDEgMCAxTxAdMC4xMzUyNTI4MDM2IDEgMC4wMjQ4
+		ODY4MzUzNwAQAYAFQTHTJSYNJygpVE5TSURVTlNJQ0MQB4AGgAdPEQxIAAAMSExpbm8C
+		EAAAbW50clJHQiBYWVogB84AAgAJAAYAMQAAYWNzcE1TRlQAAAAASUVDIHNSR0IAAAAA
+		AAAAAAAAAAAAAPbWAAEAAAAA0y1IUCAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+		AAAAAAAAAAAAAAAAAAAAAAAAAAARY3BydAAAAVAAAAAzZGVzYwAAAYQAAABsd3RwdAAA
+		AfAAAAAUYmtwdAAAAgQAAAAUclhZWgAAAhgAAAAUZ1hZWgAAAiwAAAAUYlhZWgAAAkAA
+		AAAUZG1uZAAAAlQAAABwZG1kZAAAAsQAAACIdnVlZAAAA0wAAACGdmlldwAAA9QAAAAk
+		bHVtaQAAA/gAAAAUbWVhcwAABAwAAAAkdGVjaAAABDAAAAAMclRSQwAABDwAAAgMZ1RS
+		QwAABDwAAAgMYlRSQwAABDwAAAgMdGV4dAAAAABDb3B5cmlnaHQgKGMpIDE5OTggSGV3
+		bGV0dC1QYWNrYXJkIENvbXBhbnkAAGRlc2MAAAAAAAAAEnNSR0IgSUVDNjE5NjYtMi4x
+		AAAAAAAAAAAAAAASc1JHQiBJRUM2MTk2Ni0yLjEAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+		AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFhZWiAAAAAAAADzUQABAAAAARbMWFla
+		IAAAAAAAAAAAAAAAAAAAAABYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAA
+		t4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9kZXNjAAAAAAAAABZJRUMgaHR0cDovL3d3
+		dy5pZWMuY2gAAAAAAAAAAAAAABZJRUMgaHR0cDovL3d3dy5pZWMuY2gAAAAAAAAAAAAA
+		AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZGVzYwAAAAAAAAAuSUVD
+		IDYxOTY2LTIuMSBEZWZhdWx0IFJHQiBjb2xvdXIgc3BhY2UgLSBzUkdCAAAAAAAAAAAA
+		AAAuSUVDIDYxOTY2LTIuMSBEZWZhdWx0IFJHQiBjb2xvdXIgc3BhY2UgLSBzUkdCAAAA
+		AAAAAAAAAAAAAAAAAAAAAAAAAGRlc2MAAAAAAAAALFJlZmVyZW5jZSBWaWV3aW5nIENv
+		bmRpdGlvbiBpbiBJRUM2MTk2Ni0yLjEAAAAAAAAAAAAAACxSZWZlcmVuY2UgVmlld2lu
+		ZyBDb25kaXRpb24gaW4gSUVDNjE5NjYtMi4xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+		AAB2aWV3AAAAAAATpP4AFF8uABDPFAAD7cwABBMLAANcngAAAAFYWVogAAAAAABMCVYA
+		UAAAAFcf521lYXMAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAKPAAAAAnNpZyAAAAAA
+		Q1JUIGN1cnYAAAAAAAAEAAAAAAUACgAPABQAGQAeACMAKAAtADIANwA7AEAARQBKAE8A
+		VABZAF4AYwBoAG0AcgB3AHwAgQCGAIsAkACVAJoAnwCkAKkArgCyALcAvADBAMYAywDQ
+		ANUA2wDgAOUA6wDwAPYA+wEBAQcBDQETARkBHwElASsBMgE4AT4BRQFMAVIBWQFgAWcB
+		bgF1AXwBgwGLAZIBmgGhAakBsQG5AcEByQHRAdkB4QHpAfIB+gIDAgwCFAIdAiYCLwI4
+		AkECSwJUAl0CZwJxAnoChAKOApgCogKsArYCwQLLAtUC4ALrAvUDAAMLAxYDIQMtAzgD
+		QwNPA1oDZgNyA34DigOWA6IDrgO6A8cD0wPgA+wD+QQGBBMEIAQtBDsESARVBGMEcQR+
+		BIwEmgSoBLYExATTBOEE8AT+BQ0FHAUrBToFSQVYBWcFdwWGBZYFpgW1BcUF1QXlBfYG
+		BgYWBicGNwZIBlkGagZ7BowGnQavBsAG0QbjBvUHBwcZBysHPQdPB2EHdAeGB5kHrAe/
+		B9IH5Qf4CAsIHwgyCEYIWghuCIIIlgiqCL4I0gjnCPsJEAklCToJTwlkCXkJjwmkCboJ
+		zwnlCfsKEQonCj0KVApqCoEKmAquCsUK3ArzCwsLIgs5C1ELaQuAC5gLsAvIC+EL+QwS
+		DCoMQwxcDHUMjgynDMAM2QzzDQ0NJg1ADVoNdA2ODakNww3eDfgOEw4uDkkOZA5/DpsO
+		tg7SDu4PCQ8lD0EPXg96D5YPsw/PD+wQCRAmEEMQYRB+EJsQuRDXEPURExExEU8RbRGM
+		EaoRyRHoEgcSJhJFEmQShBKjEsMS4xMDEyMTQxNjE4MTpBPFE+UUBhQnFEkUahSLFK0U
+		zhTwFRIVNBVWFXgVmxW9FeAWAxYmFkkWbBaPFrIW1hb6Fx0XQRdlF4kXrhfSF/cYGxhA
+		GGUYihivGNUY+hkgGUUZaxmRGbcZ3RoEGioaURp3Gp4axRrsGxQbOxtjG4obshvaHAIc
+		KhxSHHscoxzMHPUdHh1HHXAdmR3DHeweFh5AHmoelB6+HukfEx8+H2kflB+/H+ogFSBB
+		IGwgmCDEIPAhHCFIIXUhoSHOIfsiJyJVIoIiryLdIwojOCNmI5QjwiPwJB8kTSR8JKsk
+		2iUJJTglaCWXJccl9yYnJlcmhya3JugnGCdJJ3onqyfcKA0oPyhxKKIo1CkGKTgpaymd
+		KdAqAio1KmgqmyrPKwIrNitpK50r0SwFLDksbiyiLNctDC1BLXYtqy3hLhYuTC6CLrcu
+		7i8kL1ovkS/HL/4wNTBsMKQw2zESMUoxgjG6MfIyKjJjMpsy1DMNM0YzfzO4M/E0KzRl
+		NJ402DUTNU01hzXCNf02NzZyNq426TckN2A3nDfXOBQ4UDiMOMg5BTlCOX85vDn5OjY6
+		dDqyOu87LTtrO6o76DwnPGU8pDzjPSI9YT2hPeA+ID5gPqA+4D8hP2E/oj/iQCNAZECm
+		QOdBKUFqQaxB7kIwQnJCtUL3QzpDfUPARANER0SKRM5FEkVVRZpF3kYiRmdGq0bwRzVH
+		e0fASAVIS0iRSNdJHUljSalJ8Eo3Sn1KxEsMS1NLmkviTCpMcky6TQJNSk2TTdxOJU5u
+		TrdPAE9JT5NP3VAnUHFQu1EGUVBRm1HmUjFSfFLHUxNTX1OqU/ZUQlSPVNtVKFV1VcJW
+		D1ZcVqlW91dEV5JX4FgvWH1Yy1kaWWlZuFoHWlZaplr1W0VblVvlXDVchlzWXSddeF3J
+		XhpebF69Xw9fYV+zYAVgV2CqYPxhT2GiYfViSWKcYvBjQ2OXY+tkQGSUZOllPWWSZedm
+		PWaSZuhnPWeTZ+loP2iWaOxpQ2maafFqSGqfavdrT2una/9sV2yvbQhtYG25bhJua27E
+		bx5veG/RcCtwhnDgcTpxlXHwcktypnMBc11zuHQUdHB0zHUodYV14XY+dpt2+HdWd7N4
+		EXhueMx5KnmJeed6RnqlewR7Y3vCfCF8gXzhfUF9oX4BfmJ+wn8jf4R/5YBHgKiBCoFr
+		gc2CMIKSgvSDV4O6hB2EgITjhUeFq4YOhnKG14c7h5+IBIhpiM6JM4mZif6KZIrKizCL
+		lov8jGOMyo0xjZiN/45mjs6PNo+ekAaQbpDWkT+RqJIRknqS45NNk7aUIJSKlPSVX5XJ
+		ljSWn5cKl3WX4JhMmLiZJJmQmfyaaJrVm0Kbr5wcnImc951kndKeQJ6unx2fi5/6oGmg
+		2KFHobaiJqKWowajdqPmpFakx6U4pammGqaLpv2nbqfgqFKoxKk3qamqHKqPqwKrdavp
+		rFys0K1ErbiuLa6hrxavi7AAsHWw6rFgsdayS7LCszizrrQltJy1E7WKtgG2ebbwt2i3
+		4LhZuNG5SrnCuju6tbsuu6e8IbybvRW9j74KvoS+/796v/XAcMDswWfB48JfwtvDWMPU
+		xFHEzsVLxcjGRsbDx0HHv8g9yLzJOsm5yjjKt8s2y7bMNcy1zTXNtc42zrbPN8+40DnQ
+		utE80b7SP9LB00TTxtRJ1MvVTtXR1lXW2Ndc1+DYZNjo2WzZ8dp22vvbgNwF3IrdEN2W
+		3hzeot8p36/gNuC94UThzOJT4tvjY+Pr5HPk/OWE5g3mlucf56noMui86Ubp0Opb6uXr
+		cOv77IbtEe2c7ijutO9A78zwWPDl8XLx//KM8xnzp/Q09ML1UPXe9m32+/eK+Bn4qPk4
+		+cf6V/rn+3f8B/yY/Sn9uv5L/tz/bf//0iwtLi9aJGNsYXNzbmFtZVgkY2xhc3Nlc1xO
+		U0NvbG9yU3BhY2WiMDFcTlNDb2xvclNwYWNlWE5TT2JqZWN00iwtMzRXTlNDb2xvcqIz
+		MQAIABEAGgAkACkAMgA3AEkATABRAFMAXQBjAG4AdQCBAI4AnACkAKYAqACqAKwArgC1
+		AMgA1QDiAOgA/QEQARIBGgE6ATwBPgFAAUcBTAFSAVQBVgFYDaQNqQ20Db0Nyg3NDdoN
+		4w3oDfAAAAAAAAACAQAAAAAAAAA1AAAAAAAAAAAAAAAAAAAN8w==
+		</data>
+		<key>backgroundColorName</key>
+		<string>systemGreenColor</string>
+		<key>inputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>outputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>presentationMode</key>
+		<integer>11</integer>
+		<key>processesInput</key>
+		<false/>
+		<key>serviceInputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>serviceOutputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>serviceProcessesInput</key>
+		<false/>
+		<key>systemImageName</key>
+		<string>NSTouchBarCompose</string>
+		<key>useAutomaticInputType</key>
+		<true/>
+		<key>workflowTypeIdentifier</key>
+		<string>com.apple.Automator.servicesMenu</string>
+	</dict>
+</dict>
+</plist>
