@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# version: 1.0.2
+# version: 1.0.3
 
 require 'fileutils'
 require 'yaml'
