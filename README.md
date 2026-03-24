@@ -61,6 +61,18 @@ Optional signing identity override:
 SIGNING_ID="Apple Development: Your Name" rake build:automator
 ```
 
+Or set your identity permanently in `Rakefile` by editing:
+
+```ruby
+SIGNING_ID = ENV.fetch('SIGNING_ID', 'Apple Development: Brett Terpstra')
+```
+
+For example, replace the default with your own certificate name:
+
+```ruby
+SIGNING_ID = ENV.fetch('SIGNING_ID', 'Apple Development: Your Name')
+```
+
 ### Clean generated build output
 
 ```bash
