@@ -3,7 +3,7 @@
 `kbd` turns keyboard shortcut text into consistently formatted output for
 writing and documentation workflows, especially in Markdown and HTML.
 
-![Demo](KBD.mp4)
+![Demo](KBD.gif)
 
 Two command variants are included:
 
