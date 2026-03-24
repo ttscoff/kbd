@@ -3,6 +3,8 @@
 `kbd` turns keyboard shortcut text into consistently formatted output for
 writing and documentation workflows, especially in Markdown and HTML.
 
+![Demo](KBD.mp4)
+
 Two command variants are included:
 
 - `kbd.rb`: outputs HTML keycap markup (e.g. `<span class="keycombo ...">...</span>`)
@@ -39,7 +41,7 @@ rake build
 ### Build Automator actions archive
 
 Builds `dist` scripts, injects script content into each workflow
-`COMMAND_STRING`, signs each workflow, and creates `Automator Actions.zip`.
+`COMMAND_STRING`, signs each workflow, and creates `KBD Automator Actions.zip`.
 
 ```bash
 rake build:automator
@@ -98,7 +100,7 @@ rake bump[maj]
 
 Creates a release by bumping version, building/signing Automator workflows,
 committing release artifacts, tagging, and creating a GitHub release with
-`Automator Actions.zip` attached.
+`KBD Automator Actions.zip` attached.
 
 ```bash
 rake deploy
@@ -111,14 +113,29 @@ The deploy flow does:
 
 1. `bump`
 2. `build:automator`
-3. `git add VERSION dist/ "Automator Actions.zip"`
+3. `git add VERSION dist/`
 4. `git commit -m "Release x.y.z"`
-5. `git tag x.y.z`
-6. `gh release create x.y.z "Automator Actions.zip"`
+5. `git tag -a x.y.z -m "vx.y.z"` (or reuse existing local tag)
+6. `git push origin refs/tags/x.y.z`
+7. `changelog > release_notes.txt`
+8. `gh release create x.y.z "KBD Automator Actions.zip" --notes-file release_notes.txt`
+9. delete local `KBD Automator Actions.zip` after upload
 
 ## Installing the Automator Actions
 
 1. Go to the [latest GitHub release](https://github.com/ttscoff/kbd/releases/latest).
-2. Download `Automator Actions.zip`.
+2. Download `KBD Automator Actions.zip`.
 3. Unzip the archive.
 4. Double-click each `.workflow` file and install when prompted.
+
+## Assigning Keyboard Shortcuts to Services
+
+After installing, you can assign shortcuts to the Services in macOS:
+
+1. Open System Settings.
+2. Go to Keyboard.
+3. Click Keyboard Shortcuts.
+4. Select Services on the left.
+5. Locate `Text -> KBD *`.
+6. Click in the shortcut field to the right of the Service.
+7. Press the shortcut you want to use.

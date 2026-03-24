@@ -16,7 +16,7 @@ DIST_DIR = 'dist'
 VERSION_FILE = 'VERSION'
 WORKFLOW_SOURCE_DIR = 'automator'
 WORKFLOW_BUILD_DIR = File.join(WORKFLOW_SOURCE_DIR, 'Automator Actions')
-AUTOMATOR_ZIP = 'Automator Actions.zip'
+AUTOMATOR_ZIP = 'KBD Automator Actions.zip'
 SIGNING_ID = ENV.fetch('SIGNING_ID', 'Apple Development: Brett Terpstra')
 WORKFLOWS = {
   'KBD HTML.workflow.template' => File.join(DIST_DIR, 'kbd.rb'),
@@ -159,7 +159,10 @@ namespace :build do
       puts "Prepared and signed #{target_workflow}"
     end
 
-    ok = system("zip -qry #{Shellwords.escape(AUTOMATOR_ZIP)} #{Shellwords.escape(WORKFLOW_BUILD_DIR)}")
+    workflow_names = WORKFLOWS.keys.map { |name| name.sub(/\.template\z/, '') }
+    zip_items = workflow_names.map { |name| Shellwords.escape(name) }.join(' ')
+    cmd = "cd #{Shellwords.escape(WORKFLOW_BUILD_DIR)} && zip -qry #{Shellwords.escape(File.join('..', '..', AUTOMATOR_ZIP))} #{zip_items}"
+    ok = system(cmd)
     abort "Failed to create #{AUTOMATOR_ZIP}" unless ok
 
     puts "Created #{AUTOMATOR_ZIP}"
@@ -202,19 +205,34 @@ task :deploy, [:type] do |_, args|
 
   version = current_version
   tag = version
+  tag_ref = "refs/tags/#{tag}"
 
-  ok = system("git add #{Shellwords.escape(VERSION_FILE)} #{Shellwords.escape(DIST_DIR)} #{Shellwords.escape(AUTOMATOR_ZIP)}")
+  ok = system("git add #{Shellwords.escape(VERSION_FILE)} #{Shellwords.escape(DIST_DIR)}")
   abort 'git add failed' unless ok
 
   message = "Release #{version}"
   ok = system("git commit -m #{Shellwords.escape(message)}")
   abort 'git commit failed' unless ok
 
-  ok = system("git tag #{Shellwords.escape(tag)}")
-  abort 'git tag failed' unless ok
+  tag_exists = system("git rev-parse -q --verify #{Shellwords.escape(tag_ref)} > /dev/null 2>&1")
+  unless tag_exists
+    ok = system("git tag -a #{Shellwords.escape(tag)} -m #{Shellwords.escape("v#{tag}")}")
+    abort 'git tag failed' unless ok
+  end
 
-  ok = system("gh release create #{Shellwords.escape(tag)} #{Shellwords.escape(AUTOMATOR_ZIP)} --title #{Shellwords.escape(tag)} --notes #{Shellwords.escape("Release #{tag}")}")
+  ok = system("git push origin #{Shellwords.escape(tag_ref)}")
+  abort 'git push tag failed' unless ok
+
+  notes_file = 'release_notes.txt'
+  ok = system("changelog > #{Shellwords.escape(notes_file)}")
+  abort 'changelog failed' unless ok
+
+  ok = system("gh release create #{Shellwords.escape(tag)} #{Shellwords.escape(AUTOMATOR_ZIP)} --title #{Shellwords.escape(tag)} --notes-file #{Shellwords.escape(notes_file)}")
   abort 'gh release create failed' unless ok
+
+  FileUtils.rm_f(notes_file)
+  FileUtils.rm_f(AUTOMATOR_ZIP)
+  puts "Removed local #{AUTOMATOR_ZIP}"
 
   puts "Released #{tag} with #{AUTOMATOR_ZIP}"
 end
