@@ -118,7 +118,7 @@ The deploy flow does:
 
 ## Installing the Automator Actions
 
-1. Go to the latest GitHub release.
+1. Go to the [latest GitHub release](https://github.com/ttscoff/kbd/releases/latest).
 2. Download `Automator Actions.zip`.
 3. Unzip the archive.
 4. Double-click each `.workflow` file and install when prompted.
